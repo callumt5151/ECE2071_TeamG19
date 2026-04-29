@@ -100,7 +100,10 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  HAL_Delay(1000);
+
+	  // sample at 44.1 and 10 bits
+	  // transmit over SPI to the processing stm (10bits IN A 16bit SPI WORD at 44.1)
+	  // need to test the sample rate with osciloscope to prove this to TA
   }
   /* USER CODE END 3 */
 }
