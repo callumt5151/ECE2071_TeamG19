@@ -3,6 +3,8 @@ import serial.tools.list_ports
 import time
 import wave
 import numpy as np
+import matplotlib.pyplot as plt
+import csv
 
 
 def findSerialDevice():
@@ -19,25 +21,73 @@ time.sleep(0.1)
 ser.reset_input_buffer()
 ser.reset_output_buffer()
 
-SAMPLE_RATE = 8264
+SAMPLE_RATE = 8264 #?????
 data = []
 
 for i in range(5*SAMPLE_RATE):
     response = ser.read(1)
     data.append(int.from_bytes(response, byteorder='big'))
 
-# convert list to numpy array
-data = np.array(data)
-# normalise to 0 to 255 range:
-data = (data - data.min()) / data.max() # scale to 0-1
-data = data * 255 # scale to 0-255
-data = data.astype(np.uint8) # convert to uint8 type
+
+
+
+
+
+
+# STUFF TO PRODUCE OUTPUT
+data = np.array(data, dtype=np.float64)
+
+data_min = data.min()
+data_max = data.max()
+data_norm = (data - data_min) / (data_max - data_min)
+data_uint8 = (data_norm * 255).astype(np.uint8) # normalise the data
 
 ser.close()
 
-filename = 'prac7.wav'
-with wave.open(filename, 'wb') as wf:
-    wf.setnchannels(1) # mono audio (single channel)
-    wf.setsampwidth(1) # 8 bits (1 byte ) per sample
-    wf.setframerate(SAMPLE_RATE) # set the sample rate that the data was recorded at
-    wf.writeframes(data.tobytes()) # write the audio data to the file
+base_filename = 'output'
+
+with wave.open(f'{base_filename}.wav', 'wb') as wf:
+    wf.setnchannels(1) # ie this is mono audio
+    wf.setsampwidth(1)
+    wf.setframerate(SAMPLE_RATE)
+    wf.writeframes(data_uint8.tobytes())
+
+t = np.arange(len(data_uint8)) / SAMPLE_RATE
+
+plt.figure(figsize=(10, 4))
+plt.plot(t, data_uint8)
+plt.title('Audio Recording: Amplitude vs Time')
+plt.xlabel('Time (s)')
+plt.ylabel('Amplitude (8-bit, 0-255)')
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.savefig(f'{base_filename}_waveform.png', dpi=150)
+plt.close()
+
+signal_centred = data_uint8.astype(np.float64) - 127.5
+
+fft_vals = np.fft.rfft(signal_centred)
+fft_freqs = np.fft.rfftfreq(len(signal_centred), d=1/SAMPLE_RATE)
+fft_magnitude = np.abs(fft_vals)
+
+fft_db = 20 * np.log10(fft_magnitude + 1e-6)
+
+plt.figure(figsize=(10, 4))
+plt.plot(fft_freqs, fft_db)
+plt.title('Audio Recording: Frequency Spectrum (FFT)')
+plt.xlabel('Frequency (Hz)')
+plt.ylabel('Magnitude (dB)')
+plt.grid(True, alpha=0.3)
+plt.xlim(0, SAMPLE_RATE / 2) 
+plt.tight_layout()
+plt.savefig(f'{base_filename}_fft.png', dpi=150)
+plt.close()
+
+with open(f'{base_filename}.csv', 'w', newline='') as f:
+    writer = csv.writer(f)
+    writer.writerow(['sample_rate', SAMPLE_RATE])
+    writer.writerow(['sample_index', 'amplitude'])
+    for i, sample in enumerate(data_uint8):
+        writer.writerow([i, int(sample)])
+
+print(f'Saved: {base_filename}.wav, {base_filename}_waveform.png, {base_filename}_fft.png, {base_filename}.csv')
