@@ -31,7 +31,14 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+char mode;
+int ultraRecording; // 1 = on
+int ultraLowsInRow;
+uint8_t lengthManual;
+int samplesManual;
+uint8_t in1 = 0;
+uint8_t in2 = 0;
+uint8_t out1 = 0;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -51,7 +58,10 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+char checkMode();
+void checkUltra(int *state, int *lows); // ++ lows in row if low dectected (if is currently HIGH)
+void sendUltraStart();
+void sendUltraEnd();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -100,18 +110,41 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  // THIS IS PROCESSOR!!!
+	  mode = checkMode(); // receive mode, python should sleep to send rest of data so that stm can wait for it
+	  if (mode == 'm') {
+		  lengthManual = 100; // receive length uint8
+		  samplesManual = 1000; // calc how many samples to send
+		  for (int i = 0; i < samplesManual; i++) {
+			  // uart receive into in2 (x_n)
 
+			  out1 = (in2 + in1) / 2; // y_n= 2 length moving ave filter
+			  // send byte to pc out1 uart
 
+			  // outlier rejection for (3) here
 
+			  in1 = in2; // make x_n-1
+		  }
+		  lengthManual = 0; // recording done
+	  }
+	  else if (mode == 'u') {
+		  checkUltra(&ultraRecording, &ultraLowsInRow);
+		  if (ultraRecording) {
+			  sendUltraStart();
+			  while (ultraRecording) {
+				  checkUltra(&ultraRecording, &ultraLowsInRow);
+				  // uart receive into in2 (x_n)
+				  out1 = (in2 + in1) / 2; // y_n= 2 length moving ave filter
+				  // send byte to pc out1 uart
+				  // outlier rejection for (3) here
+				  in1 = in2; // make x_n-1
+			  }
+			  sendUltraEnd();
+		  }
+	  }
+	  else if (mode == 'o') {
 
-
-
-
-
-
-
-
-
+	  }
   }
   /* USER CODE END 3 */
 }
