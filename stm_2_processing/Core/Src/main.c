@@ -39,6 +39,10 @@ int samplesManual;
 uint8_t in1 = 0;
 uint8_t in2 = 0;
 uint8_t out1 = 0;
+int modeDelay = 1;
+int sampleRate = 8000; //Hz
+uint8_t start[] = {0xFF, 0xAF, 0xDD, 0xFF};
+uint8_t end[] = {0xEE, 0xAF, 0xDD, 0xEE};
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -47,6 +51,7 @@ uint8_t out1 = 0;
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
@@ -57,6 +62,7 @@ UART_HandleTypeDef huart2;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 char checkMode();
 void checkUltra(int *state, int *lows); // ++ lows in row if low dectected (if is currently HIGH)
@@ -99,6 +105,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -110,35 +117,41 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  // THIS IS PROCESSOR!!!
+	  // THIS IS PROCESSOR
 	  mode = checkMode(); // receive mode, python should sleep to send rest of data so that stm can wait for it
 	  if (mode == 'm') {
-		  lengthManual = 100; // receive length uint8
-		  samplesManual = 1000; // calc how many samples to send
+		  HAL_UART_Receive(&huart2, &in2, 1, HAL_MAX_DELAY);
+		  lengthManual = (int)in2; // receive length uint8
+		  samplesManual = lengthManual * sampleRate; // calc how many samples to send
+
+		  HAL_UART_CLEAR_OREFLAG(&huart1); // wipe accumulated overrun (__at start??)
 		  for (int i = 0; i < samplesManual; i++) {
-			  // uart receive into in2 (x_n)
-
-			  out1 = (in2 + in1) / 2; // y_n= 2 length moving ave filter
-			  // send byte to pc out1 uart
-
+			  HAL_UART_Receive(&huart1, &in2, 1, HAL_MAX_DELAY); // uart receive into in2 (x_n)
 			  // outlier rejection for (3) here
-
+			  out1 = (in2 + in1) / 2; // y_n= 2 length moving ave filter
+			  HAL_UART_Transmit(&huart2, &out1, 1, HAL_MAX_DELAY); // send byte to pc out1 uart2
 			  in1 = in2; // make x_n-1
 		  }
+
 		  lengthManual = 0; // recording done
 	  }
 	  else if (mode == 'u') {
 		  checkUltra(&ultraRecording, &ultraLowsInRow);
 		  if (ultraRecording) {
 			  sendUltraStart();
+
+			  HAL_UART_CLEAR_OREFLAG(&huart1); // wipe accumulated overrun (__at start??)
 			  while (ultraRecording) {
-				  checkUltra(&ultraRecording, &ultraLowsInRow);
-				  // uart receive into in2 (x_n)
-				  out1 = (in2 + in1) / 2; // y_n= 2 length moving ave filter
-				  // send byte to pc out1 uart
+
+				  HAL_UART_Receive(&huart1, &in2, 1, HAL_MAX_DELAY); // uart receive into in2 (x_n)
 				  // outlier rejection for (3) here
+				  out1 = (in2 + in1) / 2; // y_n= 2 length moving ave filter
+				  HAL_UART_Transmit(&huart2, &out1, 1, HAL_MAX_DELAY); // send byte to pc out1 uart2
 				  in1 = in2; // make x_n-1
+
+				  checkUltra(&ultraRecording, &ultraLowsInRow);
 			  }
+
 			  sendUltraEnd();
 		  }
 	  }
@@ -210,6 +223,41 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 921600;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -225,7 +273,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
+  huart2.Init.BaudRate = 921600;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -277,7 +325,24 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+char checkMode() {
+	uint8_t tmp = 0;
+	if (HAL_UART_Receive(&huart2, &tmp, 1, modeDelay) == HAL_OK) {
+		return (char)tmp;
+	}
+	return 0;
+}
+void checkUltra(int *state, int *lows) {
+	// ++ lows in row if low dectected (if is currently HIGH)
+	// still to do
+}
 
+void sendUltraStart() {
+	HAL_UART_Transmit(&huart2, start, 4, HAL_MAX_DELAY);
+}
+void sendUltraEnd() {
+	HAL_UART_Transmit(&huart2, end, 4, HAL_MAX_DELAY);
+}
 /* USER CODE END 4 */
 
 /**
