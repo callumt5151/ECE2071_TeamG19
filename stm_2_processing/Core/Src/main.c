@@ -31,18 +31,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-char mode;
-int ultraRecording; // 1 = on
-int ultraLowsInRow;
-uint8_t lengthManual;
-int samplesManual;
-uint8_t in1 = 0;
-uint8_t in2 = 0;
-uint8_t out1 = 0;
-int modeDelay = 1;
-int sampleRate = 8000; //Hz
-uint8_t start[] = {0xFF, 0xAF, 0xDD, 0xFF};
-uint8_t end[] = {0xEE, 0xAF, 0xDD, 0xEE};
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -55,7 +44,18 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+char mode;
+int ultraRecording; // 1 = on
+int ultraLowsInRow;
+uint8_t lengthManual;
+int samplesManual;
+uint8_t in1 = 0;
+uint8_t in2 = 0;
+uint8_t out1 = 0;
+int modeDelay = 1;
+int sampleRate = 8000; //Hz
+uint8_t start[] = {0xFF, 0xAF, 0xDD, 0xFF};
+uint8_t end[] = {0xEE, 0xAF, 0xDD, 0xEE};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -124,7 +124,9 @@ int main(void)
 		  lengthManual = (int)in2; // receive length uint8
 		  samplesManual = lengthManual * sampleRate; // calc how many samples to send
 
-		  HAL_UART_CLEAR_OREFLAG(&huart1); // wipe accumulated overrun (__at start??)
+		  __HAL_UART_CLEAR_FLAG(&huart1, UART_CLEAR_OREF | UART_CLEAR_FEF | UART_CLEAR_NEF);
+		  __HAL_UART_SEND_REQ(&huart1, UART_RXDATA_FLUSH_REQUEST);
+		  in1 = 0;  // also reset filter state so first sample isn't (fresh + ancient)/2
 		  for (int i = 0; i < samplesManual; i++) {
 			  HAL_UART_Receive(&huart1, &in2, 1, HAL_MAX_DELAY); // uart receive into in2 (x_n)
 			  // outlier rejection for (3) here
@@ -140,7 +142,7 @@ int main(void)
 		  if (ultraRecording) {
 			  sendUltraStart();
 
-			  HAL_UART_CLEAR_OREFLAG(&huart1); // wipe accumulated overrun (__at start??)
+			  __HAL_UART_CLEAR_OREFLAG(&huart1); // wipe accumulated overrun (__at start??)
 			  while (ultraRecording) {
 
 				  HAL_UART_Receive(&huart1, &in2, 1, HAL_MAX_DELAY); // uart receive into in2 (x_n)
