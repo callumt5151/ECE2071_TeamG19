@@ -23,7 +23,7 @@ def outputs(data):
     # data_max = data.max()
     # data_norm = (data - data_min) / (data_max - data_min)
     # data_uint8 = (data_norm * 255).astype(np.uint8)
-    data_uint8 = data.astype(np.int8)
+    data_uint8 = data.astype(np.uint8)
 
     # have datetime in file names so they dont overwrite
     now = datetime.now()
@@ -39,19 +39,17 @@ def outputs(data):
 
     t = np.arange(len(data_uint8)) / SAMPLE_RATE
 
-    plt.figure(figsize=(10, 4))
-    plt.plot(t, data_uint8)
+    plt.figure(figsize=(80, 10)) # make wide so wave form looks legit
+    plt.plot(t[3:], data_uint8[3:]) # get rid of weird transients at start
     plt.title('Wave')
     plt.xlabel('t')
     plt.ylabel('A')
-    plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(f'{base_filename}_wave.png', dpi=150)
+    plt.savefig(f'{base_filename}_wave.png')
     plt.close()
 
     with open(f'{base_filename}.csv', 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['sample_rate', SAMPLE_RATE])
         writer.writerow(['sample_index', 'amplitude'])
         for i, sample in enumerate(data_uint8):
             writer.writerow([i, int(sample)])
