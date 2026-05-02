@@ -166,8 +166,8 @@ int main(void)
 				  s1 = s3;
 				  __HAL_UART_CLEAR_FLAG(&huart1, UART_CLEAR_OREF | UART_CLEAR_FEF | UART_CLEAR_NEF);
 				  __HAL_UART_SEND_REQ(&huart1, UART_RXDATA_FLUSH_REQUEST);
-				  HAL_UART_Receive(&huart1, &s2, 1, HAL_MAX_DELAY);
-			      HAL_UART_Receive(&huart1, &s3, 1, HAL_MAX_DELAY);
+				  HAL_UART_Receive(&huart1, &s2, 1, 5);
+			      HAL_UART_Receive(&huart1, &s3, 1, 5);
 			      // Average (use uint16 to avoid overflow during sum)
 			      out1 = (uint8_t)(((uint16_t)s0 + s1 + s2 + s3) / 4);
 	//		      runningMean += (out1-runningMean)/(i+1);
@@ -450,7 +450,7 @@ void checkUltra(volatile int *state, volatile int *lows) {
     	(*lows)++;
     }
 
-	if (*lows > 10) {
+	if (*lows > 6) {
 		*state = 0;
 	}
 }
