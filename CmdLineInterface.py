@@ -41,12 +41,12 @@ def outputs(data):
 
     plt.figure(figsize=(10, 4))
     plt.plot(t, data_uint8)
-    plt.title('Waveform')
+    plt.title('Wave')
     plt.xlabel('t')
     plt.ylabel('A')
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(f'{base_filename}_waveform.png', dpi=150)
+    plt.savefig(f'{base_filename}_wave.png', dpi=150)
     plt.close()
 
     with open(f'{base_filename}.csv', 'w', newline='') as f:
@@ -56,7 +56,7 @@ def outputs(data):
         for i, sample in enumerate(data_uint8):
             writer.writerow([i, int(sample)])
 
-    print("Output files were saved")
+    print("Output files were saved to the outputs folder")
     return
 
 def runM(DURATION):
@@ -78,11 +78,11 @@ def runM(DURATION):
 
 def runD():
     time.sleep(0.2)
+    print("\nPlace hand over sensor to begin recording or ctrl+C to exit this mode")
     data = []
     ser.write(b'd')
     ser.flush()
-
-    while True: # add way to end this????
+    while (1): # add way to end this????
         raw = ser.read(1) # IT HANGS HERE NO TIMEOUT
         data.append(raw[0])
         if len(data) == 1:
@@ -95,14 +95,6 @@ def runD():
     data = np.array(data, dtype=np.float64)
     return data
 
-def quitD():
-    time.sleep(0.2)
-    ser.write(b's')
-    ser.flush()
-    print("quitD")
-    return
-
-
 
 
 #----------------------------MAIN---------------------------------
@@ -114,22 +106,30 @@ ser.reset_output_buffer()
 
 loop = True
 while(loop):
-    mode = input("Enter 'm' for Manual Mode\nEnter 'd' Distance Trigger Mode\nEnter 'q' to quit the program:\n")
+    mode = input("\nEnter 'm' for Manual Mode\nEnter 'd' Distance Trigger Mode\nEnter 'q' to quit the program\n")
     if (mode == 'm'):
-        dur = int(input("Manual Mode: Enter length of recording in seconds:\n"))
+        dur = int(input("\nManual Mode: Enter length of recording in seconds\n"))
         if ( (dur>10 ) or (dur<=0) ):
             print("Invalid input")
             continue
-        print("Manual Mode Recording...")
+        print("\nManual Mode Recording...")
         data = runM(dur)
         print("Manual Mode Recording Complete!")
         outputs(data)
 
     elif (mode == 'd'):
-        while (1):
-            data = runD()
-            outputs(data)
-        continue
+        try:
+            while (1):
+                data = runD()
+                outputs(data)
+            continue
+        except KeyboardInterrupt: # triggers if u do ctrlC ONLY INSIDE THIS TRY BLOCK maybe only works for unix systems?
+            time.sleep(0.2)
+            ser.write(b's')
+            ser.flush()
+            print("\nDistance Trigger Mode was exited")
+            continue
+    
 
     elif (mode == 'q'):
         loop = False

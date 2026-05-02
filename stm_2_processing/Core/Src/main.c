@@ -31,7 +31,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define a 3
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,18 +46,20 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-char mode = 'o';
+char mode = 'o'; // o for OFF
 volatile int ultraRecording = 0; // 1 = on
-volatile int ultraLowsInRow = 0;
+volatile int ultraLowsInRow = 0; // volatile helps with rapid changing??
 uint8_t lengthManual;
 int samplesManualOUT;
 uint8_t in1 = 0;
 uint8_t in2 = 0;
 uint8_t out1 = 0;
 int modeDelay = 1;
-int sampleRateIN = 44100; // Hz
+int sampleRateIN = 44100; //
 int sampleRateOUT = 22050;
 uint8_t end[] = {0xEE, 0xAF, 0xDD, 0xEE};
+float TRIGGERDISTANCE = 10;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -110,7 +112,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_Base_Start(&htim2);
+  HAL_TIM_Base_Start(&htim2); // start the timer for the ultrasonic sensor
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -125,69 +127,95 @@ int main(void)
 	  if (mode == 'd') {
 		  if (checkMode() == 's') {
 			  mode = 'o';
-			  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
 		  }
 		  else mode = 'd'; // if its in d it should loop and stay d unless s is sent ie stop d
 	  }
-	  else mode = checkMode(); // receive mode, python should sleep to send rest of data so that stm can wait for it
+	  else mode = checkMode(); // should stm wait here to let python catchup?
 
 	  if (mode == 'm') {
+		  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
 		  HAL_UART_Receive(&huart2, &in2, 1, HAL_MAX_DELAY);
-		  lengthManual = (int)in2; // receive length uint8
+		  lengthManual = (int)in2; // receive length in seconds as uint8
 		  samplesManualOUT = lengthManual * sampleRateOUT; // calc how many samples to send
 
-		  __HAL_UART_CLEAR_FLAG(&huart1, UART_CLEAR_OREF | UART_CLEAR_FEF | UART_CLEAR_NEF);
-		  __HAL_UART_SEND_REQ(&huart1, UART_RXDATA_FLUSH_REQUEST);
+		  __HAL_UART_CLEAR_FLAG(&huart1, UART_CLEAR_OREF | UART_CLEAR_FEF | UART_CLEAR_NEF); // get rid of any errors stopping uart
+		  __HAL_UART_SEND_REQ(&huart1, UART_RXDATA_FLUSH_REQUEST); // clear the buffer
 
 		  uint8_t s0=0, s1=0, s2=0, s3=0;
-//		  uint8_t runningMean = 0;
-		  for (int i = 0; i < samplesManualOUT; i++) {
 
-			  s0 = s2; // slide window
+		  uint8_t runningMean = 0;
+
+		  for (int i = 0; i < samplesManualOUT; i++) {
+			  s0 = s2; // slide window of the 4
 			  s1 = s3;
 			  HAL_UART_Receive(&huart1, &s2, 1, HAL_MAX_DELAY);
 		      HAL_UART_Receive(&huart1, &s3, 1, HAL_MAX_DELAY);
-		      // Average (use uint16 to avoid overflow during sum)
-		      out1 = (uint8_t)(((uint16_t)s0 + s1 + s2 + s3) / 4);
 
-//		      runningMean += (out1-runningMean)/(i+1);
+		      out1 = (uint8_t)(((uint16_t)s0 + s1 + s2 + s3) / 4); // moving average window of 4, use uint16 cast to avoid overflow during sum
+
+//		      runningMean = out1;
+////		      runningMean += (out1-runningMean)/(i+1);// outlier detection thing, CHECK IF SLOWS DOWN PROCESSOR
+//		      if (s2>a*runningMean) {
+//		    	  s2 = a*runningMean;
+//		      }
+//		      if (s3>a*runningMean) {
+//		    	  s3 = a*runningMean;
+//		      }
+
 		      HAL_UART_Transmit(&huart2, &out1, 1, HAL_MAX_DELAY);
 		  }
 
 		  lengthManual = 0; // recording done
 		  mode = 'o';
+		  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
 	  }
 	  else if (mode == 'd') {
 		  checkUltra(&ultraRecording, &ultraLowsInRow);
 		  if (ultraRecording) {
-//			  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
+			  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
 
 			  uint8_t s0=0, s1=0, s2=0, s3=0;
-			  uint32_t sampleCounter = 0;
+			  uint32_t count = 0;
+
+			  uint8_t runningMean = 0;
+
 			  while (ultraRecording) {
 
 				  s0 = s2; // slide window
 				  s1 = s3;
+
+				  // same as before but clearing more often bc seemed to help
 				  __HAL_UART_CLEAR_FLAG(&huart1, UART_CLEAR_OREF | UART_CLEAR_FEF | UART_CLEAR_NEF);
 				  __HAL_UART_SEND_REQ(&huart1, UART_RXDATA_FLUSH_REQUEST);
 				  HAL_UART_Receive(&huart1, &s2, 1, 5);
-			      HAL_UART_Receive(&huart1, &s3, 1, 5);
+			      HAL_UART_Receive(&huart1, &s3, 1, 5); // not using max delay bc helped as well
+
 			      // Average (use uint16 to avoid overflow during sum)
 			      out1 = (uint8_t)(((uint16_t)s0 + s1 + s2 + s3) / 4);
-	//		      runningMean += (out1-runningMean)/(i+1);
+
+//			      runningMean = out1;
+//	//		      runningMean += (out1-runningMean)/(i+1);// outlier detection thing, CHECK IF SLOWS DOWN PROCESSOR
+//			      if (s2 > a*runningMean) {
+//			    	  s2 = a*runningMean;
+//			      }
+//			      if (s3>a*runningMean) {
+//			    	  s3 = a*runningMean;
+//			      }
+
 			      HAL_UART_Transmit(&huart2, &out1, 1, HAL_MAX_DELAY);
 
-			      if (++sampleCounter >= 3000) {
-			          sampleCounter = 0;
+			      if (++count >= 3000) { // ONLY checkUltra EVERY 3000 samples to save cpu space
+			          count = 0; // reset the count
 			          checkUltra(&ultraRecording, &ultraLowsInRow);
 			      }
 			  }
 
-			  sendUltraEnd();
+			  sendUltraEnd(); // send 4 byte msg to python to tell it to stop recording
+			  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
 		  }
 	  }
 	  else if (mode == 'o') {
-		  // just loop do nothing
+		  // just loop do nothing o = OFF
 	  }
   }
   /* USER CODE END 3 */
@@ -411,7 +439,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 char checkMode() {
 	uint8_t tmp = 0;
-	if (HAL_UART_Receive(&huart2, &tmp, 1, modeDelay) == HAL_OK) { // or modeDelay
+	if (HAL_UART_Receive(&huart2, &tmp, 1, modeDelay) == HAL_OK) { // check for mode input ELSE its just o = OFF
 		return (char)tmp;
 	}
 	return 'o';
@@ -422,8 +450,8 @@ void checkUltra(volatile int *state, volatile int *lows) {
 	int readingfail = 0;
 
     __HAL_TIM_SET_COUNTER(&htim2, 0);
-    HAL_GPIO_WritePin(PA8_OUT_GPIO_Port, PA8_OUT_Pin, GPIO_PIN_SET);
-    while (__HAL_TIM_GET_COUNTER(&htim2) < 10) {}
+    HAL_GPIO_WritePin(PA8_OUT_GPIO_Port, PA8_OUT_Pin, GPIO_PIN_SET); //sending the trigger pulse
+    while (__HAL_TIM_GET_COUNTER(&htim2) < 10) {} // wait for 10us
     HAL_GPIO_WritePin(PA8_OUT_GPIO_Port, PA8_OUT_Pin, GPIO_PIN_RESET);
 
     __HAL_TIM_SET_COUNTER(&htim2, 0);
@@ -442,10 +470,10 @@ void checkUltra(volatile int *state, volatile int *lows) {
     }
     uint32_t timeEchoHighus = __HAL_TIM_GET_COUNTER(&htim2);
 
-    float distancecm = timeEchoHighus/58.3f;
-    if (readingfail) distancecm = 99;
+    float distancecm = timeEchoHighus/58.3f; // formulas from lab class
+    if (readingfail) distancecm = 99; // if reading fails then just set large ie as a low
 
-    if (distancecm<10) {
+    if (distancecm<TRIGGERDISTANCE) { // 10 CM IS THE CHOSEN DISTANCES ATM
     	*state = 1;
     	*lows = 0;
     }
@@ -453,7 +481,7 @@ void checkUltra(volatile int *state, volatile int *lows) {
     	(*lows)++;
     }
 
-	if (*lows > 6) {
+	if (*lows > 6) { // STABILISES THE READING AND REQUIRES 7 LOWS IN A ROW TO DEACTIVATE
 		*state = 0;
 	}
 }

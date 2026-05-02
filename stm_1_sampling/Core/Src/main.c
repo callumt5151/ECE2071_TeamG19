@@ -101,7 +101,7 @@ int main(void)
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  HAL_ADC_Start_IT(&hadc1);
+  HAL_ADC_Start_IT(&hadc1); // start timer and adc
   HAL_TIM_Base_Start(&htim2);
   /* USER CODE END 2 */
 
@@ -113,12 +113,8 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	  // THIS IS SAMPLER
-	  // sample at 44.1 and 8 (10) bits at 8khz
-	  // FOR TASK 3??? transmit over SPI to the processing stm (10bits IN A 16bit SPI WORD at 44.1)
-	  // need to test the sample rate with osciloscope to prove this to TA
-
-
-
+	  // sample at 44.1kHz and 8 bit depth
+	  // test sample rate w oscil for demo
 
 
   }
@@ -386,10 +382,8 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
-    if (hadc->Instance == ADC1) {
-        uint8_t sample = (uint8_t)HAL_ADC_GetValue(hadc);
-        HAL_UART_Transmit(&huart1, &sample, 1, HAL_MAX_DELAY);
-    }
+	uint8_t sample = (uint8_t)HAL_ADC_GetValue(hadc); // load value from adc
+	HAL_UART_Transmit(&huart1, &sample, 1, HAL_MAX_DELAY); // uart1 transmit to the processor
 }
 /* USER CODE END 4 */
 
