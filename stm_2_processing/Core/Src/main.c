@@ -40,13 +40,15 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim2;
+
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-char mode;
-int ultraRecording; // 1 = on
-int ultraLowsInRow;
+char mode = 'o';
+volatile int ultraRecording = 0; // 1 = on
+volatile int ultraLowsInRow = 0;
 uint8_t lengthManual;
 int samplesManualOUT;
 uint8_t in1 = 0;
@@ -64,10 +66,10 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 char checkMode();
-void checkUltra(int *state, int *lows); // ++ lows in row if low dectected (if is currently HIGH)
-void sendUltraStart();
+void checkUltra(volatile int *state, volatile int *lows); // ++ lows in row if low dectected (if is currently HIGH)
 void sendUltraEnd();
 /* USER CODE END PFP */
 
@@ -107,8 +109,9 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_USART1_UART_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_TIM_Base_Start(&htim2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -119,7 +122,11 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	  // THIS IS PROCESSOR
-	  mode = checkMode(); // receive mode, python should sleep to send rest of data so that stm can wait for it
+
+	  if (mode == 'd') {
+		  if (checkMode() == 's') mode = 'o'; // if its in d it should loop and stay d unless s is sent ie stop d
+	  }
+	  else mode = checkMode(); // receive mode, python should sleep to send rest of data so that stm can wait for it
 
 	  if (mode == 'm') {
 		  HAL_UART_Receive(&huart2, &in2, 1, HAL_MAX_DELAY);
@@ -129,11 +136,9 @@ int main(void)
 		  __HAL_UART_CLEAR_FLAG(&huart1, UART_CLEAR_OREF | UART_CLEAR_FEF | UART_CLEAR_NEF);
 		  __HAL_UART_SEND_REQ(&huart1, UART_RXDATA_FLUSH_REQUEST);
 
-		  in1 = 0;  // also reset filter state so first sample isn't (fresh + ancient)/2
 		  uint8_t s0=0, s1=0, s2=0, s3=0;
-		  uint8_t runningMean = 0;
+//		  uint8_t runningMean = 0;
 		  for (int i = 0; i < samplesManualOUT; i++) {
-		      // Receive a pair
 
 			  s0 = s2; // slide window
 			  s1 = s3;
@@ -142,34 +147,44 @@ int main(void)
 		      // Average (use uint16 to avoid overflow during sum)
 		      out1 = (uint8_t)(((uint16_t)s0 + s1 + s2 + s3) / 4);
 
-		      runningMean += (out1-runningMean)/(i+1);
+//		      runningMean += (out1-runningMean)/(i+1);
 		      HAL_UART_Transmit(&huart2, &out1, 1, HAL_MAX_DELAY);
 		  }
 
 		  lengthManual = 0; // recording done
 	  }
-	  else if (mode == 'u') {
+	  else if (mode == 'd') {
 		  checkUltra(&ultraRecording, &ultraLowsInRow);
 		  if (ultraRecording) {
-			  sendUltraStart();
+//			  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
 
-			  __HAL_UART_CLEAR_OREFLAG(&huart1); // wipe accumulated overrun (__at start??)
+			  uint8_t s0=0, s1=0, s2=0, s3=0;
+			  uint32_t sampleCounter = 0;
 			  while (ultraRecording) {
 
-				  HAL_UART_Receive(&huart1, &in2, 1, HAL_MAX_DELAY); // uart receive into in2 (x_n)
-				  // outlier rejection for (3) here
-				  out1 = (in2 + in1) / 2; // y_n= 2 length moving ave filter
-				  HAL_UART_Transmit(&huart2, &out1, 1, HAL_MAX_DELAY); // send byte to pc out1 uart2
-				  in1 = in2; // make x_n-1
+				  s0 = s2; // slide window
+				  s1 = s3;
+				  __HAL_UART_CLEAR_FLAG(&huart1, UART_CLEAR_OREF | UART_CLEAR_FEF | UART_CLEAR_NEF);
+				  __HAL_UART_SEND_REQ(&huart1, UART_RXDATA_FLUSH_REQUEST);
+				  HAL_UART_Receive(&huart1, &s2, 1, HAL_MAX_DELAY);
+			      HAL_UART_Receive(&huart1, &s3, 1, HAL_MAX_DELAY);
+			      // Average (use uint16 to avoid overflow during sum)
+			      out1 = (uint8_t)(((uint16_t)s0 + s1 + s2 + s3) / 4);
+	//		      runningMean += (out1-runningMean)/(i+1);
+			      HAL_UART_Transmit(&huart2, &out1, 1, HAL_MAX_DELAY);
 
-				  checkUltra(&ultraRecording, &ultraLowsInRow);
+			      if (++sampleCounter >= 3000) {
+			          sampleCounter = 0;
+			          checkUltra(&ultraRecording, &ultraLowsInRow);
+			      }
 			  }
 
 			  sendUltraEnd();
+			  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
 		  }
 	  }
 	  else if (mode == 'o') {
-
+		  // just loop do nothing
 	  }
   }
   /* USER CODE END 3 */
@@ -191,23 +206,16 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
-  /** Configure LSE Drive Capability
-  */
-  HAL_PWR_EnableBkUpAccess();
-  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
-
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSE|RCC_OSCILLATORTYPE_MSI;
-  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
-  RCC_OscInitStruct.MSIState = RCC_MSI_ON;
-  RCC_OscInitStruct.MSICalibrationValue = 0;
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 1;
-  RCC_OscInitStruct.PLL.PLLN = 16;
+  RCC_OscInitStruct.PLL.PLLN = 10;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -225,14 +233,58 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
   {
     Error_Handler();
   }
+}
 
-  /** Enable MSI Auto calibration
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
   */
-  HAL_RCCEx_EnableMSIPLLMode();
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 79;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 4294967295;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
 }
 
 /**
@@ -323,7 +375,23 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(PA8_OUT_GPIO_Port, PA8_OUT_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PA0_IN_Pin */
+  GPIO_InitStruct.Pin = PA0_IN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(PA0_IN_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA8_OUT_Pin */
+  GPIO_InitStruct.Pin = PA8_OUT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(PA8_OUT_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LD3_Pin */
   GPIO_InitStruct.Pin = LD3_Pin;
@@ -340,19 +408,53 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 char checkMode() {
 	uint8_t tmp = 0;
-	if (HAL_UART_Receive(&huart2, &tmp, 1, modeDelay) == HAL_OK) {
+	if (HAL_UART_Receive(&huart2, &tmp, 1, modeDelay) == HAL_OK) { // or modeDelay
 		return (char)tmp;
 	}
-	return 0;
-}
-void checkUltra(int *state, int *lows) {
-	// ++ lows in row if low dectected (if is currently HIGH)
-	// still to do
+	return 'o';
 }
 
-void sendUltraStart() {
-	HAL_UART_Transmit(&huart2, start, 4, HAL_MAX_DELAY);
+void checkUltra(volatile int *state, volatile int *lows) {
+	// ++ lows in row if low dectected (if is currently HIGH)
+	int readingfail = 0;
+
+    __HAL_TIM_SET_COUNTER(&htim2, 0);
+    HAL_GPIO_WritePin(PA8_OUT_GPIO_Port, PA8_OUT_Pin, GPIO_PIN_SET);
+    while (__HAL_TIM_GET_COUNTER(&htim2) < 10) {}
+    HAL_GPIO_WritePin(PA8_OUT_GPIO_Port, PA8_OUT_Pin, GPIO_PIN_RESET);
+
+    __HAL_TIM_SET_COUNTER(&htim2, 0);
+    while (HAL_GPIO_ReadPin(PA0_IN_GPIO_Port, PA0_IN_Pin) == GPIO_PIN_RESET) {
+    	if (__HAL_TIM_GET_COUNTER(&htim2) > 50000) { // need a timout thing here bc if no return signal
+    		readingfail =1;
+    		break;
+    	}
+    }
+    __HAL_TIM_SET_COUNTER(&htim2, 0);
+    while (HAL_GPIO_ReadPin(PA0_IN_GPIO_Port, PA0_IN_Pin) == GPIO_PIN_SET) {
+    	if (__HAL_TIM_GET_COUNTER(&htim2) > 50000) { // need a timout thing here bc if no return signal
+    			readingfail =1;
+    			break;
+    		}
+    }
+    uint32_t timeEchoHighus = __HAL_TIM_GET_COUNTER(&htim2);
+
+    float distancecm = timeEchoHighus/58.3f;
+    if (readingfail) distancecm = 99;
+
+    if (distancecm<10) {
+    	*state = 1;
+    	*lows = 0;
+    }
+    else if (*state == 1) {
+    	(*lows)++;
+    }
+
+	if (*lows > 10) {
+		*state = 0;
+	}
 }
+
 void sendUltraEnd() {
 	HAL_UART_Transmit(&huart2, end, 4, HAL_MAX_DELAY);
 }
