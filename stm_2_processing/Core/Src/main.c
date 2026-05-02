@@ -48,12 +48,13 @@ char mode;
 int ultraRecording; // 1 = on
 int ultraLowsInRow;
 uint8_t lengthManual;
-int samplesManual;
+int samplesManualOUT;
 uint8_t in1 = 0;
 uint8_t in2 = 0;
 uint8_t out1 = 0;
 int modeDelay = 1;
-int sampleRate = 8000; //Hz
+int sampleRateIN = 44100; //Hz
+int sampleRateOUT = 22050;
 uint8_t start[] = {0xFF, 0xAF, 0xDD, 0xFF};
 uint8_t end[] = {0xEE, 0xAF, 0xDD, 0xEE};
 /* USER CODE END PV */
@@ -119,20 +120,30 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	  // THIS IS PROCESSOR
 	  mode = checkMode(); // receive mode, python should sleep to send rest of data so that stm can wait for it
+
 	  if (mode == 'm') {
 		  HAL_UART_Receive(&huart2, &in2, 1, HAL_MAX_DELAY);
 		  lengthManual = (int)in2; // receive length uint8
-		  samplesManual = lengthManual * sampleRate; // calc how many samples to send
+		  samplesManualOUT = lengthManual * sampleRateOUT; // calc how many samples to send
 
 		  __HAL_UART_CLEAR_FLAG(&huart1, UART_CLEAR_OREF | UART_CLEAR_FEF | UART_CLEAR_NEF);
 		  __HAL_UART_SEND_REQ(&huart1, UART_RXDATA_FLUSH_REQUEST);
+
 		  in1 = 0;  // also reset filter state so first sample isn't (fresh + ancient)/2
-		  for (int i = 0; i < samplesManual; i++) {
-			  HAL_UART_Receive(&huart1, &in2, 1, HAL_MAX_DELAY); // uart receive into in2 (x_n)
-			  // outlier rejection for (3) here
-			  out1 = (in2 + in1) / 2; // y_n= 2 length moving ave filter
-			  HAL_UART_Transmit(&huart2, &out1, 1, HAL_MAX_DELAY); // send byte to pc out1 uart2
-			  in1 = in2; // make x_n-1
+		  uint8_t s0=0, s1=0, s2=0, s3=0;
+		  uint8_t runningMean = 0;
+		  for (int i = 0; i < samplesManualOUT; i++) {
+		      // Receive a pair
+
+			  s0 = s2; // slide window
+			  s1 = s3;
+			  HAL_UART_Receive(&huart1, &s2, 1, HAL_MAX_DELAY);
+		      HAL_UART_Receive(&huart1, &s3, 1, HAL_MAX_DELAY);
+		      // Average (use uint16 to avoid overflow during sum)
+		      out1 = (uint8_t)(((uint16_t)s0 + s1 + s2 + s3) / 4);
+
+		      runningMean += (out1-runningMean)/(i+1);
+		      HAL_UART_Transmit(&huart2, &out1, 1, HAL_MAX_DELAY);
 		  }
 
 		  lengthManual = 0; // recording done
