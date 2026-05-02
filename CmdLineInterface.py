@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import csv
 from datetime import datetime
 
-
+SAMPLE_RATE = 22050
+# DURATION = 2
 
 def findSerialDevice():
     ports = serial.tools.list_ports.comports()
@@ -55,10 +56,11 @@ def outputs(data):
         for i, sample in enumerate(data_uint8):
             writer.writerow([i, int(sample)])
 
-    print(f'Saved: {base_filename}.wav, {base_filename}_waveform.png, {base_filename}_fft.png, {base_filename}.csv')
+    print("Output files were saved")
     return
 
 def runM(DURATION):
+    time.sleep(0.2)
     data = []
 
     ser.write(b'm' + bytes([DURATION]))
@@ -75,21 +77,30 @@ def runM(DURATION):
     return data
 
 def runD():
+    time.sleep(0.2)
     data = []
     ser.write(b'd')
     ser.flush()
 
-    while True: # add way to end this
-        raw = ser.read(1)
-        print(raw)
+    while True: # add way to end this????
+        raw = ser.read(1) # IT HANGS HERE NO TIMEOUT
         data.append(raw[0])
+        if len(data) == 1:
+            print("Distance Trigger Mode Recording...")
         if len(data) >= 4 and data[-4:] == [0xEE, 0xAF, 0xDD, 0xEE]:
-            print("End Word Received")
+            print("Distance Trigger Mode Recording Complete!")
             break
 
     data = data[:-4] 
     data = np.array(data, dtype=np.float64)
     return data
+
+def quitD():
+    time.sleep(0.2)
+    ser.write(b's')
+    ser.flush()
+    print("quitD")
+    return
 
 
 
@@ -101,35 +112,32 @@ time.sleep(0.1)
 ser.reset_input_buffer()
 ser.reset_output_buffer()
 
-# loop = True
-# while(loop):
-#     mode = input("Enter 'm' for Manual Recording Mode\nEnter 'd' Distance Trigger Mode\nEnter 'q' to quit the program:\n")
-#     if (mode == 'm'):
-#         dur = int(input("Manual Recording Mode: Enter length in seconds:\n"))
-#         if ( (dur>10 ) or (dur<=0) ):
-#             print("Invalid input")
-#             continue
-#         print("Recording...")
-#         data = runM(dur)
-#         outputs(data)
-#         loop = False
+loop = True
+while(loop):
+    mode = input("Enter 'm' for Manual Mode\nEnter 'd' Distance Trigger Mode\nEnter 'q' to quit the program:\n")
+    if (mode == 'm'):
+        dur = int(input("Manual Mode: Enter length of recording in seconds:\n"))
+        if ( (dur>10 ) or (dur<=0) ):
+            print("Invalid input")
+            continue
+        print("Manual Mode Recording...")
+        data = runM(dur)
+        print("Manual Mode Recording Complete!")
+        outputs(data)
 
-#     elif (mode == 'd'):
-#         loop = False
-#         continue
+    elif (mode == 'd'):
+        while (1):
+            data = runD()
+            outputs(data)
+        continue
 
-#     elif (mode == 'q'):
-#         loop = False
-#         continue
-#     else:
-#         print("Invalid input")
-#         continue
+    elif (mode == 'q'):
+        loop = False
+        continue
+    else:
+        print("Invalid input")
+        continue
 
-SAMPLE_RATE = 22050
-DURATION = 5
-# data = runM(DURATION)
-data = runD()
-outputs(data)
 
 ser.close()
 #-----------------------------ENDMAIN----------------------------

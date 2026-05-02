@@ -55,9 +55,8 @@ uint8_t in1 = 0;
 uint8_t in2 = 0;
 uint8_t out1 = 0;
 int modeDelay = 1;
-int sampleRateIN = 44100; //Hz
+int sampleRateIN = 44100; // Hz
 int sampleRateOUT = 22050;
-uint8_t start[] = {0xFF, 0xAF, 0xDD, 0xFF};
 uint8_t end[] = {0xEE, 0xAF, 0xDD, 0xEE};
 /* USER CODE END PV */
 
@@ -124,7 +123,11 @@ int main(void)
 	  // THIS IS PROCESSOR
 
 	  if (mode == 'd') {
-		  if (checkMode() == 's') mode = 'o'; // if its in d it should loop and stay d unless s is sent ie stop d
+		  if (checkMode() == 's') {
+			  mode = 'o';
+			  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
+		  }
+		  else mode = 'd'; // if its in d it should loop and stay d unless s is sent ie stop d
 	  }
 	  else mode = checkMode(); // receive mode, python should sleep to send rest of data so that stm can wait for it
 
@@ -152,6 +155,7 @@ int main(void)
 		  }
 
 		  lengthManual = 0; // recording done
+		  mode = 'o';
 	  }
 	  else if (mode == 'd') {
 		  checkUltra(&ultraRecording, &ultraLowsInRow);
@@ -180,7 +184,6 @@ int main(void)
 			  }
 
 			  sendUltraEnd();
-			  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
 		  }
 	  }
 	  else if (mode == 'o') {
